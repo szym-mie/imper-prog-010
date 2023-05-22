@@ -24,19 +24,20 @@ typedef int(*predicate_ptr)(void*);
 typedef void(*read_ptr)(void*);
 typedef void(*print_ptr)(const void*);
 
-#define VECTOR_OFFSET(V, S) ((V).element_size * S)
+#define VECTOR_OFFSET(V, S) ((V).element_size * (S))
 
 #define VECTOR_INIT_ZERO // comment to disable zero-init at 'reserve'
 #define VECTOR_ALLOC_MARGIN 4 // how much slots to add when resizing
+#define VECTOR_ALLOC_THRES 2 // alloc threshold upsizes with N free slots
 
 // Allocate vector to initial capacity (block_size elements),
 // Set element_size, size (to 0), capacity
 void 
 init_vector(Vector *vector, size_t block_size, size_t element_size)
 {
+	vector->element_size = element_size;
 	vector->data = malloc(VECTOR_OFFSET(*vector, block_size));
 	if (vector->data == NULL) return; // fail silently
-	vector->element_size = element_size;
 	vector->size = 0;
 	vector->capacity = block_size;
 }
@@ -48,12 +49,10 @@ reserve(Vector *vector, size_t new_capacity)
 {
 	if (new_capacity > vector->capacity)
 	{
+		printf("realloc start %p %zu\n", vector->data, VECTOR_OFFSET(*vector, new_capacity));
 		void *new_data = realloc(vector->data, VECTOR_OFFSET(*vector, new_capacity));
 		if (new_data == NULL) return; // fail silently
 		void *new_data_offset = (byte *)new_data + VECTOR_OFFSET(*vector, vector->capacity);
-#ifdef VECTOR_INIT_ZERO
-		memset(new_data_offset, 0, new_capacity - vector->capacity); // clear new elements to zero
-#endif
 		vector->data = new_data;
 		vector->capacity = new_capacity;
 	}
@@ -71,7 +70,18 @@ resize(Vector *vector, size_t new_size) {
 	// in case 'new_size' greater than 'new_capacity'
 	// the biggest danger here is silent fail to allocate further memory
 	// leading to segfaults
-	while (new_size > vector->capacity) reserve(vector, new_capacity);
+	printf("%zu %zu\n", new_size, vector->capacity);
+	while (new_size + VECTOR_ALLOC_THRES > vector->capacity) 
+		reserve(vector, new_capacity);
+
+	void *prev_end = (byte *)vector->data + VECTOR_OFFSET(*vector, vector->size);
+#ifdef VECTOR_INIT_ZERO
+	// clear new elements to zero
+	memset(prev_end, 0, VECTOR_OFFSET(*vector, vector->capacity - vector->size));
+#endif
+
+	printf("after %zu %zu\n", new_size, vector->capacity);
+
 	vector->size = new_size;
 }
 
@@ -81,8 +91,9 @@ push_back(Vector *vector, void *value)
 {
 	// GCC extensions allow for direct pointer arithemtic on 'void *' by assuming
 	// sizeof(void *) to be equal to 1. Use casting to stay compatible with ANSI C
-	void *ins_point = (byte *)vector->data + VECTOR_OFFSET(*vector, vector->size + 1);
+	size_t prev_size = vector->size;
 	resize(vector, vector->size + 1);
+	void *ins_point = (byte *)vector->data + VECTOR_OFFSET(*vector, prev_size);
 	memcpy(ins_point, value, vector->element_size);
 }
 
@@ -99,10 +110,11 @@ clear(Vector *vector)
 void 
 insert(Vector *vector, size_t index, void *value)
 {
+	resize(vector, vector->size + 1);
+	size_t prev_size = vector->size;
 	void *ins_point = (byte *)vector->data + VECTOR_OFFSET(*vector, index);
 	void *move_point = (byte *)ins_point + vector->element_size;
-	size_t cpy_size = vector->size - VECTOR_OFFSET(*vector, index);
-	resize(vector, vector->size + 1);
+	size_t cpy_size = VECTOR_OFFSET(*vector, prev_size - index);
 	memmove(move_point, ins_point, cpy_size);
 	memcpy(ins_point, value, vector->element_size);
 }
@@ -111,13 +123,16 @@ insert(Vector *vector, size_t index, void *value)
 void 
 erase(Vector *vector, size_t index) 
 {
+	size_t prev_size = vector->size;
 	void *move_point = (byte *)vector->data + VECTOR_OFFSET(*vector, index);
 	void *del_point = (byte *)move_point + vector->element_size;
-	size_t cpy_size = vector->size - VECTOR_OFFSET(*vector, index) - 1;
+	size_t cpy_size = VECTOR_OFFSET(*vector, prev_size - index - 1);
 	memmove(move_point, del_point, cpy_size);
+	vector->size--;
 }
 
 #define VECTOR_FOREACH(V) for (size_t i = 0, pi = 0; i < (V).size; i++, pi+=(V).element_size)
+#define VECTOR_STEPBACK(V) i--, pi-=(V).element_size;
 
 // Erase all elements that compare equal to value from the container
 void 
@@ -126,7 +141,12 @@ erase_value(Vector *vector, void *value, cmp_ptr cmp)
 	byte *blk = vector->data;
 	VECTOR_FOREACH(*vector) 
 	{
-		if (cmp(value, blk+pi)) erase(vector, i);
+		if (!cmp(value, blk+pi)) 
+		{
+			printf("ev %zu\n", i);
+			erase(vector, i);
+			VECTOR_STEPBACK(*vector)
+		}
 	}
 }
 
@@ -137,7 +157,11 @@ erase_if(Vector *vector, int (*predicate)(void *))
 	byte *blk = vector->data;
 	VECTOR_FOREACH(*vector)
 	{
-		if (predicate(blk+pi)) erase(vector, i);
+		if (predicate(blk+pi)) 
+		{
+			erase(vector, i);
+			VECTOR_STEPBACK(*vector)
+		}
 	}
 }
 
@@ -145,7 +169,7 @@ erase_if(Vector *vector, int (*predicate)(void *))
 void 
 shrink_to_fit(Vector *vector) 
 {
-	void *new_data = realloc(vector->data, vector->size);
+	void *new_data = realloc(vector->data, VECTOR_OFFSET(*vector, vector->size));
 	if (new_data == NULL) return;
 	vector->data = new_data;
 	vector->capacity = vector->size;
@@ -231,37 +255,45 @@ print_char(const void *v)
 }
 
 // print structure Person
-void print_person(const void *v) 
+void 
+print_person(const void *v) 
 {
 	const Person *pv = v;
 	printf("%d %s %s", pv->age, pv->first_name, pv->last_name);
 }
 
 // print capacity of the vector and its elements
-void print_vector(Vector *vector, print_ptr print) 
+void 
+print_vector(Vector *vector, print_ptr print) 
 {
-	printf("%llu\n", vector->capacity);
+	printf("%zu\n", vector->capacity);
 
 	byte *blk = vector->data;
 	VECTOR_FOREACH(*vector)
 	{
 		print(blk+pi);
-		printf("\n");
+		printf(" ");
 	}
 }
 
 // read int value
-void read_int(void* value) {
+void 
+read_int(void* value) 
+{
 	scanf("%d", (int *)value);
 }
 
 // read char value
-void read_char(void* value) {
-	scanf("%c", (char *)value);
+void 
+read_char(void* value) 
+{
+	scanf(" %c", (char *)value);
 }
 
 // read struct Person
-void read_person(void* value) {
+void 
+read_person(void* value) 
+{
 	Person *p = value;
 	scanf("%d %s %s", &p->age, p->first_name, p->last_name);
 }
