@@ -26,9 +26,9 @@ typedef void(*print_ptr)(const void*);
 
 #define VECTOR_OFFSET(V, S) ((V).element_size * (S))
 
-#define VECTOR_INIT_ZERO // comment to disable zero-init at 'reserve'
-#define VECTOR_ALLOC_MARGIN 4 // how much slots to add when resizing
-#define VECTOR_ALLOC_THRES 2 // alloc threshold upsizes with N free slots
+#define VECTOR_INIT_ZERO // comment to disable zero-init at 'resize'
+#define VECTOR_ALLOC_MARGIN 0 // how much slots to add when resizing
+#define VECTOR_ALLOC_THRES 0 // alloc threshold upsizes with N free slots
 
 // Allocate vector to initial capacity (block_size elements),
 // Set element_size, size (to 0), capacity
@@ -114,7 +114,7 @@ insert(Vector *vector, size_t index, void *value)
 	size_t prev_size = vector->size;
 	void *ins_point = (byte *)vector->data + VECTOR_OFFSET(*vector, index);
 	void *move_point = (byte *)ins_point + vector->element_size;
-	size_t cpy_size = VECTOR_OFFSET(*vector, prev_size - index);
+	size_t cpy_size = VECTOR_OFFSET(*vector, prev_size - index - 1);
 	memmove(move_point, ins_point, cpy_size);
 	memcpy(ins_point, value, vector->element_size);
 }
@@ -201,7 +201,7 @@ person_cmp(const void *p1, const void *p2)
 {
 	const Person *pp1 = p1;
 	const Person *pp2 = p2;
-	int age_diff = pp1->age - pp2->age;
+	int age_diff = pp2->age - pp1->age;
 	if (age_diff) return age_diff;
 	int first_name_diff = strncmp(pp1->first_name, pp2->first_name, MAX_STR_LEN);
 	if (first_name_diff) return first_name_diff;
@@ -243,7 +243,7 @@ void
 print_int(const void *v) 
 {
 	const int *iv = v;
-	printf("%d", *iv);
+	printf("%d ", *iv);
 }
 
 // print char value
@@ -251,7 +251,7 @@ void
 print_char(const void *v) 
 {
 	const char *cv = v;
-	printf("%c", *cv);
+	printf("%c ", *cv);
 }
 
 // print structure Person
@@ -259,7 +259,7 @@ void
 print_person(const void *v) 
 {
 	const Person *pv = v;
-	printf("%d %s %s", pv->age, pv->first_name, pv->last_name);
+	printf("%d %s %s\n", pv->age, pv->first_name, pv->last_name);
 }
 
 // print capacity of the vector and its elements
@@ -272,7 +272,6 @@ print_vector(Vector *vector, print_ptr print)
 	VECTOR_FOREACH(*vector)
 	{
 		print(blk+pi);
-		printf(" ");
 	}
 }
 
