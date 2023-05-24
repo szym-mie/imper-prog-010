@@ -301,7 +301,7 @@ void vector_test(Vector *vector, size_t block_size, size_t elem_size, int n, rea
 		 cmp_ptr cmp, predicate_ptr predicate, print_ptr print) {
 	init_vector(vector, block_size, elem_size);
 	void *v = malloc(vector->element_size);
-	if (v == NULL) return;
+	if (v == NULL) return; // the safe part of safe_malloc
 	size_t index, size;
 	for (int i = 0; i < n; ++i) {
 		char op;
