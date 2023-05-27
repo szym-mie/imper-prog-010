@@ -49,7 +49,6 @@ reserve(Vector *vector, size_t new_capacity)
 {
 	if (new_capacity > vector->capacity)
 	{
-		printf("realloc start %p %zu\n", vector->data, VECTOR_OFFSET(*vector, new_capacity));
 		void *new_data = realloc(vector->data, VECTOR_OFFSET(*vector, new_capacity));
 		if (new_data == NULL) return; // fail silently
 		void *new_data_offset = (byte *)new_data + VECTOR_OFFSET(*vector, vector->capacity);
@@ -70,7 +69,6 @@ resize(Vector *vector, size_t new_size) {
 	// in case 'new_size' greater than 'new_capacity'
 	// the biggest danger here is silent fail to allocate further memory
 	// leading to segfaults
-	printf("%zu %zu\n", new_size, vector->capacity);
 	while (new_size + VECTOR_ALLOC_THRES > vector->capacity) 
 		reserve(vector, new_capacity);
 
@@ -79,8 +77,6 @@ resize(Vector *vector, size_t new_size) {
 	// clear new elements to zero
 	memset(prev_end, 0, VECTOR_OFFSET(*vector, vector->capacity - vector->size));
 #endif
-
-	printf("after %zu %zu\n", new_size, vector->capacity);
 
 	vector->size = new_size;
 }
@@ -143,7 +139,6 @@ erase_value(Vector *vector, void *value, cmp_ptr cmp)
 	{
 		if (!cmp(value, blk+pi)) 
 		{
-			printf("ev %zu\n", i);
 			erase(vector, i);
 			VECTOR_STEPBACK(*vector)
 		}
